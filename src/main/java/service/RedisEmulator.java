@@ -8,22 +8,23 @@ import model.StringWrapper;
 
 import java.io.File;
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 
 public class RedisEmulator implements Emulator {
     // stores for string and hash keys
-    private HashMap<String, StringWrapper> stringStorage;
-    private HashMap<String, HashWrapper> hashStorage;
+    private ConcurrentHashMap<String, StringWrapper> stringStorage;
+    private ConcurrentHashMap<String, HashWrapper> hashStorage;
     // map for LRU implementation, tracking order of usage of a key
     private LinkedHashMap<String, Boolean> lruOrder;
+    private final Object lruLock = new Object();
     private int maxMemory;
     private int currentSize;
 
     public RedisEmulator(int maxMemory) {
-        this.stringStorage = new HashMap<>();
-        this.hashStorage = new HashMap<>();
+        this.stringStorage = new ConcurrentHashMap<>();
+        this.hashStorage = new ConcurrentHashMap<>();
         this.maxMemory = maxMemory;
         this.currentSize = 0;
         this.lruOrder = new LinkedHashMap<>(16, 0.75f, true);
@@ -38,16 +39,18 @@ public class RedisEmulator implements Emulator {
     }
 
     private void performLRUEviction() {
-        if (currentSize == maxMemory) {
-            String oldestKey = lruOrder.entrySet().iterator().next().getKey();
-            lruOrder.remove(oldestKey);
+        synchronized (lruLock) {
+            if (currentSize == maxMemory) {
+                String oldestKey = lruOrder.entrySet().iterator().next().getKey();
+                lruOrder.remove(oldestKey);
 
-            if (stringStorage.containsKey(oldestKey)) {
-                stringStorage.remove(oldestKey);
-            } else if (hashStorage.containsKey(oldestKey)) {
-                hashStorage.remove(oldestKey);
+                if (stringStorage.containsKey(oldestKey)) {
+                    stringStorage.remove(oldestKey);
+                } else if (hashStorage.containsKey(oldestKey)) {
+                    hashStorage.remove(oldestKey);
+                }
+                currentSize--;
             }
-            currentSize--;
         }
     }
 
@@ -65,9 +68,11 @@ public class RedisEmulator implements Emulator {
             stringStorage.put(key, new StringWrapper(value, expirationTime));
         }
 
-        lruOrder.put(key, Boolean.TRUE);
-        if (isNewKey) {
-            currentSize++;
+        synchronized (lruLock) {
+            lruOrder.put(key, Boolean.TRUE);
+            if (isNewKey) {
+                currentSize++;
+            }
         }
     }
 
@@ -84,13 +89,17 @@ public class RedisEmulator implements Emulator {
             if (currentTime >= expirationTime) {
                 // Expired key - clear storage & cache
                 stringStorage.remove(key);
-                lruOrder.remove(key);
-                currentSize--;
+                synchronized (lruLock) {
+                    lruOrder.remove(key);
+                    currentSize--;
+                }
                 return null;
             }
         }
 
-        lruOrder.get(key);
+        synchronized (lruLock) {
+            lruOrder.get(key);
+        }
 
         return wrapper.getValue();
     }
@@ -103,10 +112,12 @@ public class RedisEmulator implements Emulator {
         }
 
         HashWrapper existingHash = hashStorage.get(hashName);
-
         if (existingHash == null) {
-            existingHash = new HashWrapper(new HashMap<>());
-            hashStorage.put(hashName, existingHash);
+            HashWrapper newHash = new HashWrapper(new ConcurrentHashMap<>());
+            existingHash = hashStorage.putIfAbsent(hashName, newHash);
+            if (existingHash == null) {
+                existingHash = newHash;
+            }
         }
 
         long expirationTime = (ttl == null) ? -1 : (System.currentTimeMillis() + ttl * 1000L);
@@ -114,9 +125,11 @@ public class RedisEmulator implements Emulator {
 
         existingHash.getFields().put(field, wrapper);
 
-        lruOrder.put(hashName, Boolean.TRUE);
-        if(isNewKey) {
-            currentSize++;
+        synchronized (lruLock) {
+            lruOrder.put(hashName, Boolean.TRUE);
+            if (isNewKey) {
+                currentSize++;
+            }
         }
     }
 
@@ -127,7 +140,9 @@ public class RedisEmulator implements Emulator {
             return null;
         }
 
-        lruOrder.get(hashName);
+        synchronized (lruLock) {
+            lruOrder.get(hashName);
+        }
 
         StringWrapper wrapper = existingHash.getFields().get(field);
         if (wrapper == null) {
@@ -148,41 +163,45 @@ public class RedisEmulator implements Emulator {
 
     @Override
     public void saveToFile(String filename) {
-        EmulatorState state = new EmulatorState(maxMemory);
-        state.setStringStorage(stringStorage);
-        state.setHashStorage(hashStorage);
-        state.setCurrentSize(currentSize);
+        synchronized (lruLock) {
+            EmulatorState state = new EmulatorState(maxMemory);
+            state.setStringStorage(stringStorage);
+            state.setHashStorage(hashStorage);
+            state.setCurrentSize(currentSize);
 
-        state.setLruKeys(List.copyOf(lruOrder.keySet()));
+            state.setLruKeys(List.copyOf(lruOrder.keySet()));
 
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            mapper.writeValue(new File(filename), state);
-        } catch (IOException e) {
-            e.printStackTrace();
+            ObjectMapper mapper = new ObjectMapper();
+            try {
+                mapper.writeValue(new File(filename), state);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
         }
     }
 
     @Override
     public void loadFromFile(String filename) {
-        ObjectMapper mapper = new ObjectMapper();
-        try {
-            EmulatorState loadedState = mapper.readValue(new File(filename), EmulatorState.class);
+        synchronized (lruLock) {
+            ObjectMapper mapper = new ObjectMapper();
+            try {
+                EmulatorState loadedState = mapper.readValue(new File(filename), EmulatorState.class);
 
-            this.stringStorage = (HashMap<String, StringWrapper>) loadedState.getStringStorage();
-            this.hashStorage = (HashMap<String, HashWrapper>) loadedState.getHashStorage();
-            this.maxMemory = loadedState.getMaxMemory();
-            this.currentSize = loadedState.getCurrentSize();
+                this.stringStorage = (ConcurrentHashMap<String, StringWrapper>) loadedState.getStringStorage();
+                this.hashStorage = (ConcurrentHashMap<String, HashWrapper>) loadedState.getHashStorage();
+                this.maxMemory = loadedState.getMaxMemory();
+                this.currentSize = loadedState.getCurrentSize();
 
-            this.lruOrder = new LinkedHashMap<>(16, 0.75f, true);
-            List<String> keys = loadedState.getLruKeys();
-            for (String key : keys) {
-                lruOrder.put(key, Boolean.TRUE);
+                this.lruOrder = new LinkedHashMap<>(16, 0.75f, true);
+                List<String> keys = loadedState.getLruKeys();
+                for (String key : keys) {
+                    lruOrder.put(key, Boolean.TRUE);
+                }
+
+                // Consider: after loading, should we remove expired keys?
+            } catch (IOException e) {
+                e.printStackTrace();
             }
-
-            // Consider: after loading, should we remove expired keys?
-        } catch (IOException e) {
-            e.printStackTrace();
         }
     }
 }
