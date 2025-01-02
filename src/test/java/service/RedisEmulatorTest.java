@@ -62,4 +62,22 @@ public class RedisEmulatorTest {
         String actualProfile = redis.hget("user:1000", "profile");
         Assertions.assertEquals(nestedJson, actualProfile, "Test 4 Failed: Nested (JSON) hash not working as expected");
     }
+
+    /**
+     * Test 5: Memory limit and eviction policy
+     */
+    @Test
+    public void testMemoryLimitAndEvictionPolicy() {
+        RedisEmulator redis = new RedisEmulator(3);
+
+        redis.set("key1", "value1", null);
+        redis.set("key2", "value2", null);
+        redis.set("key3", "value3", null);
+
+        redis.set("key4", "value4", null);
+
+        Assertions.assertNull(redis.get("key1"), "Test 5 Failed: LRU eviction not working");
+
+        Assertions.assertEquals("value2", redis.get("key2"), "Test 5 Failed: Key should not be evicted incorrectly");
+    }
 }
