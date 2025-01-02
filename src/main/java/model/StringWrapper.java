@@ -6,6 +6,11 @@ public class StringWrapper {
     private String value;
     private Long ttl;
 
+    public StringWrapper() {
+        this.value = null;
+        this.ttl = null;
+    }
+
     public StringWrapper(String value) {
         this.value = value;
         this.ttl = null;

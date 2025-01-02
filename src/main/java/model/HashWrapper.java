@@ -1,10 +1,15 @@
 package model;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
 
 public class HashWrapper {
     private Map<String, StringWrapper> fields;
+
+    public HashWrapper() {
+        this.fields = new HashMap<>();
+    }
 
     public HashWrapper(Map<String, StringWrapper> fields) {
         this.fields = fields;
