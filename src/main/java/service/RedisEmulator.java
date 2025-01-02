@@ -163,6 +163,24 @@ public class RedisEmulator implements Emulator {
     }
 
     @Override
+    public void del(String key) {
+        synchronized (lruLock) {
+            if (stringStorage.containsKey(key)) {
+                stringStorage.remove(key);
+                lruOrder.remove(key);
+                currentSize--;
+                return;
+            }
+
+            if (hashStorage.containsKey(key)) {
+                hashStorage.remove(key);
+                lruOrder.remove(key);
+                currentSize--;
+            }
+        }
+    }
+
+    @Override
     public void saveToFile(String filename) {
         synchronized (lruLock) {
             EmulatorState state = new EmulatorState(maxMemory);
