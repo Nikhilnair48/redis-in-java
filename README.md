@@ -14,6 +14,9 @@ A basic implementation of Redis in Java
     - `hset(hashName, field, value, ttl)`: Stores a field-value pair in a hash, optionally with TTL at the field level
     - `hget(hashName, field)`: Retrieves a field’s value; returns `null` if it doesn’t exist or is expired
 
+- **Removal**
+  - `del(key)`: Removes a key and its associated value; all pertaining fields for a hash is removed
+
 - **Memory Limits (LRU Eviction)**
     - A `maxMemory` parameter to restrict the total number of keys (string or hash)
     - Once capacity is reached, the LRU key is evicted
