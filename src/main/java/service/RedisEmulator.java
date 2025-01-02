@@ -10,6 +10,7 @@ import java.io.File;
 import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class RedisEmulator implements Emulator {
@@ -187,8 +188,14 @@ public class RedisEmulator implements Emulator {
             try {
                 EmulatorState loadedState = mapper.readValue(new File(filename), EmulatorState.class);
 
-                this.stringStorage = (ConcurrentHashMap<String, StringWrapper>) loadedState.getStringStorage();
-                this.hashStorage = (ConcurrentHashMap<String, HashWrapper>) loadedState.getHashStorage();
+                Map<String, StringWrapper> fromFileStringStorage = loadedState.getStringStorage();
+                this.stringStorage = new ConcurrentHashMap<>();
+                this.stringStorage.putAll(fromFileStringStorage);
+
+                Map<String, HashWrapper> fromFileHashStorage = loadedState.getHashStorage();
+                this.hashStorage = new ConcurrentHashMap<>();
+                this.hashStorage.putAll(fromFileHashStorage);
+
                 this.maxMemory = loadedState.getMaxMemory();
                 this.currentSize = loadedState.getCurrentSize();
 
