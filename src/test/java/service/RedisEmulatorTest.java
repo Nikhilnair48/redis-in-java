@@ -148,4 +148,21 @@ public class RedisEmulatorTest {
             );
         }
     }
+
+    @Test
+    public void testDeleteKey() {
+        RedisEmulator redis = new RedisEmulator(5);
+
+        redis.set("key1", "value1", null);
+        Assertions.assertEquals("value1", redis.get("key1"));
+
+        redis.del("key1");
+        Assertions.assertNull(redis.get("key1"), "Key should be deleted");
+
+        redis.hset("key1", "fgitield1", "val1", null);
+        Assertions.assertEquals("val1", redis.hget("key1", "field1"));
+
+        redis.del("key1");
+        Assertions.assertNull(redis.hget("key1", "field1"), "Hash should be deleted");
+    }
 }
