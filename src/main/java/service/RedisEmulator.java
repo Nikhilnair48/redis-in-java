@@ -5,28 +5,64 @@ import model.HashWrapper;
 import model.StringWrapper;
 
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 
 public class RedisEmulator implements Emulator {
+    // stores for string and hash keys
     private HashMap<String, StringWrapper> stringStorage;
     private HashMap<String, HashWrapper> hashStorage;
+    // map for LRU implementation, tracking order of usage of a key
+    private LinkedHashMap<String, Boolean> lruOrder;
+    private int maxMemory;
+    private int currentSize;
 
-    public RedisEmulator() {
+    public RedisEmulator(int maxMemory) {
         this.stringStorage = new HashMap<>();
         this.hashStorage = new HashMap<>();
+        this.maxMemory = maxMemory;
+        this.currentSize = 0;
+        this.lruOrder = new LinkedHashMap<>(16, 0.75f, true);
     }
 
-    public RedisEmulator(HashMap<String, StringWrapper> stringStorage, HashMap<String, HashWrapper> hashStorage) {
-        this.stringStorage = stringStorage;
-        this.hashStorage = hashStorage;
+    public RedisEmulator() {
+        this(Integer.MAX_VALUE);
+    }
+
+    private boolean isNewKey(String key) {
+        return (!stringStorage.containsKey(key) && !hashStorage.containsKey(key));
+    }
+
+    private void performLRUEviction() {
+        if (currentSize == maxMemory) {
+            String oldestKey = lruOrder.entrySet().iterator().next().getKey();
+            lruOrder.remove(oldestKey);
+
+            if (stringStorage.containsKey(oldestKey)) {
+                stringStorage.remove(oldestKey);
+            } else if (hashStorage.containsKey(oldestKey)) {
+                hashStorage.remove(oldestKey);
+            }
+            currentSize--;
+        }
     }
 
     @Override
     public void set(String key, String value, Integer ttl) {
+        boolean isNewKey = isNewKey(key);
+        if (isNewKey) {
+            performLRUEviction();
+        }
+
         if (ttl == null) {
             stringStorage.put(key, new StringWrapper(value, null));
         } else {
             long expirationTime = System.currentTimeMillis() + (ttl * 1000L);
             stringStorage.put(key, new StringWrapper(value, expirationTime));
+        }
+
+        lruOrder.put(key, Boolean.TRUE);
+        if (isNewKey) {
+            currentSize++;
         }
     }
 
@@ -42,17 +78,26 @@ public class RedisEmulator implements Emulator {
             long currentTime = System.currentTimeMillis();
             long expirationTime = wrapper.getTtl();
             if (currentTime >= expirationTime) {
-                // Expired key
+                // Expired key - clear storage & cache
                 stringStorage.remove(key);
+                lruOrder.remove(key);
+                currentSize--;
                 return null;
             }
         }
+
+        lruOrder.get(key);
 
         return wrapper.getValue();
     }
 
     @Override
     public void hset(String hashName, String field, String value, Integer ttl) {
+        boolean isNewKey = isNewKey(hashName);
+        if (isNewKey) {
+            performLRUEviction();
+        }
+
         HashWrapper existingHash = hashStorage.get(hashName);
 
         if (existingHash == null) {
@@ -64,6 +109,11 @@ public class RedisEmulator implements Emulator {
         StringWrapper wrapper = new StringWrapper(value, (ttl == null) ? null : expirationTime);
 
         existingHash.getFields().put(field, wrapper);
+
+        lruOrder.put(hashName, Boolean.TRUE);
+        if(isNewKey) {
+            currentSize++;
+        }
     }
 
     @Override
@@ -72,6 +122,8 @@ public class RedisEmulator implements Emulator {
         if (existingHash == null) {
             return null;
         }
+
+        lruOrder.get(hashName);
 
         StringWrapper wrapper = existingHash.getFields().get(field);
         if (wrapper == null) {
