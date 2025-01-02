@@ -3,6 +3,9 @@ package service;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.util.ArrayList;
+import java.util.List;
+
 public class RedisEmulatorTest {
 
     /**
@@ -82,7 +85,7 @@ public class RedisEmulatorTest {
     }
 
     /**
-     * Test 5: Persistence
+     * Test 6: Persistence
      */
     @Test
     public void testPersistence() {
@@ -110,5 +113,39 @@ public class RedisEmulatorTest {
                 newRedis.get("key1"),
                 "Test 6 Failed: Persistence (eviction state) not maintained"
         );
+    }
+
+    /**
+     * Test 7: Concurrency
+     */
+    @Test
+    public void testConcurrency() throws InterruptedException {
+        RedisEmulator redis = new RedisEmulator(10);
+
+        int numberOfThreads = 5;
+        List<Thread> threads = new ArrayList<>();
+
+        for (int i = 0; i < numberOfThreads; i++) {
+            final int index = i;
+            Thread t = new Thread(() -> {
+                redis.set("concurrent_key_" + index, "value_" + index, null);
+            });
+            threads.add(t);
+            t.start();
+        }
+
+        for (Thread t : threads) {
+            t.join();
+        }
+
+        for (int i = 0; i < numberOfThreads; i++) {
+            String actualValue = redis.get("concurrent_key_" + i);
+            String expectedValue = "value_" + i;
+            Assertions.assertEquals(
+                    expectedValue,
+                    actualValue,
+                    "Test 7 Failed: Concurrency issue with key concurrent_key_" + i
+            );
+        }
     }
 }
