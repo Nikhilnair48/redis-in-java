@@ -1,11 +1,16 @@
 package service;
 
 import api.Emulator;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import model.EmulatorState;
 import model.HashWrapper;
 import model.StringWrapper;
 
+import java.io.File;
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.List;
 
 public class RedisEmulator implements Emulator {
     // stores for string and hash keys
@@ -65,7 +70,6 @@ public class RedisEmulator implements Emulator {
             currentSize++;
         }
     }
-
 
     @Override
     public String get(String key) {
@@ -140,5 +144,45 @@ public class RedisEmulator implements Emulator {
         }
 
         return wrapper.getValue();
+    }
+
+    @Override
+    public void saveToFile(String filename) {
+        EmulatorState state = new EmulatorState(maxMemory);
+        state.setStringStorage(stringStorage);
+        state.setHashStorage(hashStorage);
+        state.setCurrentSize(currentSize);
+
+        state.setLruKeys(List.copyOf(lruOrder.keySet()));
+
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            mapper.writeValue(new File(filename), state);
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    @Override
+    public void loadFromFile(String filename) {
+        ObjectMapper mapper = new ObjectMapper();
+        try {
+            EmulatorState loadedState = mapper.readValue(new File(filename), EmulatorState.class);
+
+            this.stringStorage = (HashMap<String, StringWrapper>) loadedState.getStringStorage();
+            this.hashStorage = (HashMap<String, HashWrapper>) loadedState.getHashStorage();
+            this.maxMemory = loadedState.getMaxMemory();
+            this.currentSize = loadedState.getCurrentSize();
+
+            this.lruOrder = new LinkedHashMap<>(16, 0.75f, true);
+            List<String> keys = loadedState.getLruKeys();
+            for (String key : keys) {
+                lruOrder.put(key, Boolean.TRUE);
+            }
+
+            // Consider: after loading, should we remove expired keys?
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }
