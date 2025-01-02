@@ -80,4 +80,35 @@ public class RedisEmulatorTest {
 
         Assertions.assertEquals("value2", redis.get("key2"), "Test 5 Failed: Key should not be evicted incorrectly");
     }
+
+    /**
+     * Test 5: Persistence
+     */
+    @Test
+    public void testPersistence() {
+        RedisEmulator redis = new RedisEmulator(3);
+
+        redis.set("key1", "value1", null);
+        redis.set("key2", "value2", null);
+        redis.set("key3", "value3", null);
+        // should evict key1
+        redis.set("key4", "value4", null);
+
+        redis.saveToFile("test_dump.rdb");
+
+        RedisEmulator newRedis = new RedisEmulator();
+
+        newRedis.loadFromFile("test_dump.rdb");
+        
+        Assertions.assertEquals(
+                "value2",
+                newRedis.get("key2"),
+                "Test 6 Failed: Persistence (load) not working"
+        );
+
+        Assertions.assertNull(
+                newRedis.get("key1"),
+                "Test 6 Failed: Persistence (eviction state) not maintained"
+        );
+    }
 }
